@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import os
 import subprocess
 import re
@@ -28,27 +27,37 @@ def pause_prompt():
     input(colored_text("yellow", "Pressione Enter para continuar..."))
 
 
-def validate_port(port):
+def validate_port(port: str) -> bool:
     if not re.match(r"^\d+$", port):
         print(colored_text("red", "Porta inválida."))
         return False
-    port = int(port)
-    if port <= 0 or port > 65535:
+    p = int(port)
+    if p <= 0 or p > 65535:
         print(colored_text("red", "Porta fora do intervalo permitido."))
         return False
     return True
 
 
-def execute_command(command):
+def execute_command(command: str) -> bool:
     try:
-        subprocess.run(command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(
+            command,
+            shell=True,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         return True
     except subprocess.CalledProcessError as e:
-        print(colored_text("red", f"Erro ao executar: {e}"))
+        err = (e.stderr or "").strip()
+        print(colored_text("red", f"Erro ao executar: {command}"))
+        if err:
+            print(colored_text("red", err))
         return False
 
 
-def is_port_in_use(port):
+def is_port_in_use(port: str) -> bool:
     try:
         result = subprocess.run(
             f"lsof -i :{port}",
@@ -57,7 +66,7 @@ def is_port_in_use(port):
             stderr=subprocess.PIPE,
             text=True,
         )
-        return result.stdout != ""
+        return result.stdout.strip() != ""
     except Exception as e:
         print(colored_text("red", f"Erro ao verificar porta: {e}"))
         return False
@@ -68,12 +77,15 @@ def restart_ntproxy():
         port = prompt("Porta: ")
         if not validate_port(port):
             continue
-        port = int(port)
+
         service_name = f"ntproxy-{port}"
-        if not execute_command(f"systemctl is-active {service_name}"):
+
+        # Se não estiver ativo, avisa e sai
+        if not execute_command(f"systemctl is-active --quiet {service_name}"):
             print(colored_text("red", f"Proxy na porta {port} não está ativo."))
             pause_prompt()
             return
+
         execute_command(f"systemctl restart {service_name}")
         print(colored_text("green", f"Proxy na porta {port} reiniciado."))
         pause_prompt()
@@ -87,13 +99,20 @@ def show_ntproxy():
             "systemctl list-units --type=service --state=running | grep ntproxy-",
             shell=True,
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
         )
         services = result.stdout.strip().split("\n")
         for service in services:
             if service:
                 service_name = service.split()[0]
-                port = service_name.split("-")[1]
+                # ntproxy-PORT.service
+                if service_name.endswith(".service"):
+                    base = service_name[:-8]
+                else:
+                    base = service_name
+                parts = base.split("-")
+                port = parts[1] if len(parts) > 1 else "?"
                 print(colored_text("blue", f"Proxy na porta {port} está ativo."))
     except Exception as e:
         print(colored_text("red", f"Erro ao listar serviços: {e}"))
@@ -105,12 +124,15 @@ def configure_and_start_service():
         port = prompt("Porta: ")
         if not validate_port(port):
             continue
+
         if is_port_in_use(port):
             print(colored_text("red", f"Porta {port} já está em uso."))
             continue
 
         service_name = f"ntproxy-{port}"
         service_file = f"/etc/systemd/system/{service_name}.service"
+
+        # CORREÇÃO: ntproxy.py usa -p <port>
         service_content = f"""
 [Unit]
 Description=NTProxy Service on Port {port}
@@ -118,8 +140,9 @@ After=network.target
 
 [Service]
 LimitNOFILE=infinity
-ExecStart=/opt/NTProxy/ntproxy.py {port}
+ExecStart=/usr/bin/env python3 /opt/NTProxy/ntproxy.py -p {port}
 Restart=always
+RestartSec=1
 
 [Install]
 WantedBy=multi-user.target
@@ -128,13 +151,16 @@ WantedBy=multi-user.target
         try:
             with open(service_file, "w") as f:
                 f.write(service_content)
-            execute_command(f"chmod +x {service_file}")
+
+            # CORREÇÃO: daemon-reload deve vir antes de enable/start
+            execute_command("systemctl daemon-reload")
             execute_command(f"systemctl enable {service_name}")
             execute_command(f"systemctl start {service_name}")
-            execute_command("systemctl daemon-reload")
+
             print(colored_text("green", f"Proxy iniciado na porta {port}."))
         except Exception as e:
             print(colored_text("red", f"Erro ao configurar serviço: {e}"))
+
         pause_prompt()
         break
 
@@ -144,17 +170,23 @@ def stop_and_remove_service():
         port = prompt("Porta: ")
         if not validate_port(port):
             continue
-        port = int(port)
+
         service_name = f"ntproxy-{port}"
+        service_file = f"/etc/systemd/system/{service_name}.service"
+
         try:
             execute_command(f"systemctl stop {service_name}")
             execute_command(f"systemctl disable {service_name}")
-            service_file = f"/etc/systemd/system/{service_name}.service"
-            os.remove(service_file)
+
+            # remove unit file se existir
+            if os.path.exists(service_file):
+                os.remove(service_file)
+
             execute_command("systemctl daemon-reload")
             print(colored_text("green", f"Proxy na porta {port} parado e removido."))
         except Exception as e:
             print(colored_text("red", f"Erro ao remover serviço: {e}"))
+
         pause_prompt()
         break
 
@@ -163,13 +195,17 @@ def menu_main():
     while True:
         os.system("clear")
         print(colored_text("blue", "╔═════════════════════════════╗"))
-        print(colored_text("blue", "║") + colored_text("green", "      NTunnel Proxy Menu     ") + colored_text("blue", "║"))
+        print(
+            colored_text("blue", "║")
+            + colored_text("green", "      NTunnel Proxy Menu     ")
+            + colored_text("blue", "║")
+        )
         print(colored_text("blue", "║═════════════════════════════║"))
-        print(colored_text("blue", "║ [1] ABRIR PORTA           ║"))
-        print(colored_text("blue", "║ [2] FECHAR PORTA          ║"))
-        print(colored_text("blue", "║ [3] REINICIAR PORTA       ║"))
-        print(colored_text("blue", "║ [4] MONITOR               ║"))
-        print(colored_text("blue", "║ [0] SAIR                  ║"))
+        print(colored_text("blue", "║ [1] ABRIR PORTA            ║"))
+        print(colored_text("blue", "║ [2] FECHAR PORTA           ║"))
+        print(colored_text("blue", "║ [3] REINICIAR PORTA        ║"))
+        print(colored_text("blue", "║ [4] MONITOR                ║"))
+        print(colored_text("blue", "║ [0] SAIR                   ║"))
         print(colored_text("blue", "╚═════════════════════════════╝"))
 
         option = prompt("Escolha uma opção: ")
