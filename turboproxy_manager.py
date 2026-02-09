@@ -194,11 +194,11 @@ def uninstall_turboproxy():
     print(colored_text("yellow", "- Remover /usr/local/bin/turboproxy"))
     print()
 
-    confirm = prompt("Digite DESINSTALAR para confirmar: ").strip()
-    if confirm != "DESINSTALAR":
-        print(colored_text("yellow", "Cancelado."))
-        pause_prompt()
-        return
+    resp = prompt("Confirmar desinstalação? [S/N]: ").strip().lower()
+    if resp not in ("s", "sim"):
+    print(colored_text("yellow", "Cancelado."))
+    pause_prompt()
+    return
 
     units = list_turboproxy_units()
 
