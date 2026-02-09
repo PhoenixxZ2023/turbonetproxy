@@ -195,8 +195,12 @@ def uninstall_turboproxy():
     print()
 
     resp = prompt("Confirmar desinstalação? [S/N]: ").strip().lower()
-    if resp not in ("s", "sim"):
+if resp in ("n", "nao", "não", ""):
     print(colored_text("yellow", "Cancelado."))
+    pause_prompt()
+    return
+if resp not in ("s", "sim"):
+    print(colored_text("red", "Opção inválida."))
     pause_prompt()
     return
 
