@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/opt/NTProxy"
-PROXY_SRC="./turboproxy.py"
-MANAGER_SRC="./turboproxy_manager.py"
+REPO_RAW_BASE="https://raw.githubusercontent.com/PhoenixxZ2023/turbonetproxy/main"
 
+APP_DIR="/opt/NTProxy"
 PROXY_DST="${APP_DIR}/ntproxy.py"
 MANAGER_DST="${APP_DIR}/ntproxy_manager.py"
 
@@ -12,26 +11,35 @@ BIN_LINK="/usr/local/bin/ntproxy"
 
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
-    echo "[ERRO] Execute como root: sudo bash install.sh"
+    echo "[ERRO] Execute como root: sudo bash <(wget -qO- ${REPO_RAW_BASE}/install.sh)"
     exit 1
   fi
 }
 
-require_files() {
-  [[ -f "${PROXY_SRC}" ]] || { echo "[ERRO] Não achei ${PROXY_SRC} na pasta atual."; exit 1; }
-  [[ -f "${MANAGER_SRC}" ]] || { echo "[ERRO] Não achei ${MANAGER_SRC} na pasta atual."; exit 1; }
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "[ERRO] Comando obrigatório não encontrado: $1"
+    exit 1
+  }
 }
 
-install_deps_apt() {
-  apt-get update -y
-  apt-get install -y --no-install-recommends \
-    python3 lsof
+install_deps() {
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -y
+    apt-get install -y --no-install-recommends ca-certificates wget python3 lsof
+  else
+    echo "[ERRO] Suportado: Ubuntu/Debian (apt)."
+    exit 1
+  fi
 }
 
-install_files() {
+download_files() {
   mkdir -p "${APP_DIR}"
-  cp -f "${PROXY_SRC}" "${PROXY_DST}"
-  cp -f "${MANAGER_SRC}" "${MANAGER_DST}"
+
+  # Baixa arquivos do GitHub (raw)
+  wget -qO "${PROXY_DST}"  "${REPO_RAW_BASE}/turboproxy.py"
+  wget -qO "${MANAGER_DST}" "${REPO_RAW_BASE}/turboproxy_manager.py"
+
   chmod +x "${PROXY_DST}" "${MANAGER_DST}"
 }
 
@@ -52,11 +60,13 @@ reload_systemd() {
 
 main() {
   need_root
-  require_files
-  command -v apt-get >/dev/null 2>&1 || { echo "[ERRO] Suportado: Ubuntu/Debian (apt)."; exit 1; }
+  install_deps
 
-  install_deps_apt
-  install_files
+  need_cmd wget
+  need_cmd python3
+  need_cmd lsof
+
+  download_files
   create_launcher
   reload_systemd
 
