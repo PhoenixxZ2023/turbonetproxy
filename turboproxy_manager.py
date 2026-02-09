@@ -173,6 +173,72 @@ WantedBy=multi-user.target
         break
 
 
+def list_turboproxy_units():
+    result = subprocess.run(
+        "systemctl list-unit-files --type=service | awk '{print $1}' | grep '^turboproxy-[0-9]\\+\\.service$' || true",
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return [x.strip() for x in result.stdout.splitlines() if x.strip()]
+
+
+def uninstall_turboproxy():
+    os.system("clear")
+    print(colored_text("red", "=== DESINSTALAR TURBOPROXY ==="))
+    print(colored_text("yellow", "Isso vai:"))
+    print(colored_text("yellow", "- Parar e remover TODOS os serviços turboproxy-*"))
+    print(colored_text("yellow", "- Remover /etc/systemd/system/turboproxy-*.service"))
+    print(colored_text("yellow", "- Remover /opt/NTProxy"))
+    print(colored_text("yellow", "- Remover /usr/local/bin/turboproxy"))
+    print()
+
+    confirm = prompt("Digite DESINSTALAR para confirmar: ").strip()
+    if confirm != "DESINSTALAR":
+        print(colored_text("yellow", "Cancelado."))
+        pause_prompt()
+        return
+
+    units = list_turboproxy_units()
+
+    # Para e desabilita serviços
+    for unit in units:
+        service_name = unit.replace(".service", "")
+        execute_command(f"systemctl stop {service_name} || true")
+        execute_command(f"systemctl disable {service_name} || true")
+
+    # Remove unit files
+    for unit in units:
+        service_file = f"/etc/systemd/system/{unit}"
+        try:
+            if os.path.exists(service_file):
+                os.remove(service_file)
+        except Exception as e:
+            print(colored_text("red", f"Falha ao remover {service_file}: {e}"))
+
+    # Reload systemd
+    execute_command("systemctl daemon-reload || true")
+    execute_command("systemctl reset-failed || true")
+
+    # Remove arquivos do app
+    try:
+        if os.path.exists("/opt/NTProxy"):
+            execute_command("rm -rf /opt/NTProxy")
+    except Exception as e:
+        print(colored_text("red", f"Falha ao remover /opt/NTProxy: {e}"))
+
+    # Remove launcher
+    try:
+        if os.path.exists("/usr/local/bin/turboproxy"):
+            os.remove("/usr/local/bin/turboproxy")
+    except Exception as e:
+        print(colored_text("red", f"Falha ao remover /usr/local/bin/turboproxy: {e}"))
+
+    print(colored_text("green", "TurboProxy desinstalado com sucesso."))
+    pause_prompt()
+
+
 def stop_and_remove_service():
     while True:
         port = prompt("Porta: ")
@@ -208,6 +274,7 @@ def menu_main():
         print(colored_text("blue", "║ [2] FECHAR PORTA           ║"))
         print(colored_text("blue", "║ [3] REINICIAR PORTA        ║"))
         print(colored_text("blue", "║ [4] MONITOR                ║"))
+        print(colored_text("blue", "║ [5] DESINSTALAR            ║"))
         print(colored_text("blue", "║ [0] SAIR                   ║"))
         print(colored_text("blue", "╚═════════════════════════════╝"))
 
@@ -221,6 +288,8 @@ def menu_main():
             restart_turboproxy()
         elif option == "4":
             show_turboproxy()
+        elif option == "5":
+            uninstall_turboproxy()
         elif option == "0":
             print(colored_text("red", "Saindo..."))
             break
