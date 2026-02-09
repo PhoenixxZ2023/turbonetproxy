@@ -61,8 +61,10 @@ def execute_command(command: str) -> bool:
 
 def is_port_in_use(port: str) -> bool:
     try:
+        # Checa somente sockets em LISTEN na porta informada (IPv4/IPv6)
+        cmd = f"ss -ltnH 'sport = :{port}'"
         result = subprocess.run(
-            f"lsof -i :{port}",
+            cmd,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
